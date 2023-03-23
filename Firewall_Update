@@ -1,0 +1,92 @@
+# Challenge 33 Firewall Update: Tables for Two
+
+## Transition from iptables to nftables
+- uninstall iptables from each machine (careful of loopback rule for Security-Desk)
+
+- iptables rules backups are in the home folders of each machine.
+
+- use the default package managers on each machine to install nftables
+
+- nftables rules should function the same as the iptables rules
+
+- enable the nftables service so that it is persistent across reboots.
+
+- allow port 443 on Prod-Joomla. The backup has it disabled
+
+- have all firewalls log SSH attempts with a the prefix 'SSH DETECTED'
+
+- have Prod-Joomla log all dropped packets with a prefix of 'PACKET DROPPED'
+
+- forward nftables logs to the remote syslog server on Domain-Controller
+  * servers are already configured to forward syslog to DC
+  * remote syslogger needs to be configured on DC
+  * installer should be on your Desktop on Domain-Controller.
+  * have it export logs of severity 'Warning' or higher to CSV files in C:\Users\playerone\Documents\Logs.
+  * encode those files in UTF-8
+
+
+## SECURITY-DESK
+export iptables rules (just in case): iptables-save > save.txt
+Install nftables: apt install nftables iptables-nftables-compat
+translate iptables rules to nftables format: iptables-restore-translate -f save.txt > ruleset.nft
+edit rules: nano ruleset.nft
+add to INPUT rule for dport 22, between "counter" and "accept": log prefix "SSH DETECTED"
+add loopback rule: add rule ip filter INPUT iifname "lo" counter accept
+clear rules: nft flush ruleset
+import rulseset: nft -f ruleset.nft
+Save config: nft list ruleset > /root/nftables.conf
+Enable service to autorun: systemctl enable nftables.service
+Start service: systemctl start nftables.service
+uninstall iptables: apt autoremove --purge iptables
+Restart server.
+
+## PROD-JOOMLA
+SSH to 172.16.10.100
+export iptables rules (just in case): iptables-save > save.txt
+Install nftables: apt install nftables iptables-nftables-compat
+translate iptables rules to nftables format: iptables-restore-translate -f save.txt > ruleset.nft
+edit rules: nano ruleset.nft
+add to end of INPUT chain: log prefix "PACKET DROPPED";
+add to INPUT rule for dport 22, between "counter" and "accept": log prefix "SSH DETECTED"
+add new INPUT rule chain for dport 443 accept
+clear rules: nft flush ruleset
+import rulseset: nft -f ruleset.nft
+Save config: nft list ruleset > /root/nftables.conf
+uninstall iptables: apt autoremove --purge iptables
+lost my SSH connection - had to connect directly to console. Probably should have removed iptables last
+Enable service to autorun: systemctl enable nftables.service
+Start service systemctl start nftables.service
+rules apparently not taking effect. Had to restart server.
+## FILESHARE
+SSH to 172.16.30.100
+export iptables rules (just in case): iptables-save > save.txt
+Install nftables: apt install nftables iptables-nftables-compat
+iptables-restore-translate apparently not available in this version of Ubuntu:
+copy the file to sscurity-desk instead: scp .\iptables.save playerone@72.16.20.55:~\fileshare_iptables.txt
+connect to security-desk and translate iptables rules to nftables format: iptables-restore-translate -f fileshare_iptables.txt > fileshare_ruleset.nft
+copy the new file back to FILESHARE scp .\fileshare_ruleset.nft playerone@172.16.30.100:~\ruleset.nft
+edit rules: nano ruleset.nft
+add to INPUT rule for dport 22, between "counter" and "accept": log prefix "SSH DETECTED"
+clear rules: nft flush ruleset
+import rulseset: nft -f ruleset.nft
+Save config: nft list ruleset > /root/nftables.conf
+Enable service to autorun: systemctl enable nftables.service
+Start service systemctl start nftables.service
+Error message: unable to install service: "default-start contains no runlevels, aborting."
+edit /etc/init.d/nftables, add start runlevels 2 3 4
+systemd enable nftables.service - success!
+uninstall iptables apt autoremove --purge iptables
+still lost my SSH connection - had to connect directly to console and restart server. Oh well.
+
+## DOMAIN CONTROLLER
+install application from desktop
+Open Settings > Export to files
+set criteria to warning or higher
+click "destination"
+set log folder to C:\Users\playerone\Documents\Logs\
+set encoding to UTF-8
+Start server
+verify that inbound messages include SSH DETECTED from all three servers and PACKET DROPPED messages from Joomla (WWW)
+verify folders and CSV files created under C:\Users\playerone\Documents\Logs\
+verify CSVs contain SSH DETECTED and/or PACKET DROPPED messages as configured
+For me, all challenge checks turned green except "joomla dropped packets". after about an hour, the "joomla dropped packets" check finally turned green
